@@ -51,9 +51,23 @@ app.get('/auth/callback', async (req, res) => {
         return res.status(500).send('Failed to verify session');
     }
 
-    // Success! Store the permanent session in Redis for this Telegram User
+    // Success! 
+    // 1. Store the permanent mapping in Supabase database
+    const supabaseUserId = data.session.user.id;
+    
     try {
-        await redis.set(`session:${telegramUserId}`, data.session.user.id);
+        const { error: dbError } = await supabase
+            .from('telegram_users')
+            .upsert({ 
+                telegram_id: telegramUserId.toString(), 
+                supabase_user_id: supabaseUserId 
+            });
+            
+        if (dbError) throw dbError;
+
+        // 2. Store the ultra-fast temporary session in Redis for 24 hours (86400 seconds)
+        await redis.set(`session:${telegramUserId}`, supabaseUserId, 'EX', 86400);
+
         res.send(`
             <html>
             <body style="font-family: sans-serif; text-align: center; padding: 50px;">
@@ -63,9 +77,9 @@ app.get('/auth/callback', async (req, res) => {
             </body>
             </html>
         `);
-    } catch (redisError) {
-        console.error('Redis save error:', redisError);
-        res.status(500).send('Failed to save session');
+    } catch (err) {
+        console.error('Database/Redis save error:', err);
+        res.status(500).send('Failed to save session data');
     }
 });
 

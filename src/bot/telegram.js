@@ -1,6 +1,8 @@
 import { Telegraf, Markup } from 'telegraf';
 import dotenv from 'dotenv';
 import { redis } from '../redis/client.js';
+import { supabase } from '../supabase/client.js';
+import { generateJournalResponse } from '../ai/journal.js';
 
 dotenv.config();
 
@@ -24,12 +26,18 @@ bot.command('login', async (ctx) => {
 });
 
 bot.command('logout', async (ctx) => {
-    const userId = ctx.from.id;
+    const userId = ctx.from.id.toString();
+    
+    // 1. Delete from Redis
     await redis.del(`session:${userId}`);
-    return ctx.reply('You have been logged out.');
+    
+    // 2. Delete from Supabase permanent storage
+    await supabase.from('telegram_users').delete().eq('telegram_id', userId);
+    
+    return ctx.reply('You have been logged out completely. You will need to re-authenticate to use the bot.');
 });
 
-// Authentication Middleware
+// Authentication Middleware (Hybrid Session Check)
 bot.use(async (ctx, next) => {
     if (!ctx.from) return next();
     
@@ -38,9 +46,27 @@ bot.use(async (ctx, next) => {
         return next();
     }
     
-    const userId = ctx.from.id;
-    const isAuth = await redis.get(`session:${userId}`);
+    const userId = ctx.from.id.toString();
     
+    // 1. Check Redis for ultra-fast temporary session
+    let isAuth = await redis.get(`session:${userId}`);
+    
+    // 2. If not in Redis, check Supabase permanent storage
+    if (!isAuth) {
+        const { data, error } = await supabase
+            .from('telegram_users')
+            .select('supabase_user_id')
+            .eq('telegram_id', userId)
+            .single();
+            
+        if (data && data.supabase_user_id) {
+            // Rehydrate Redis for another 24 hours
+            await redis.set(`session:${userId}`, data.supabase_user_id, 'EX', 86400);
+            isAuth = data.supabase_user_id;
+        }
+    }
+    
+    // 3. If still not authenticated, block them
     if (!isAuth) {
         return ctx.reply('🔒 You are not authorized. Please type /login to authenticate with Google.');
     }
@@ -76,8 +102,17 @@ bot.command('start', (ctx) => {
     ctx.reply('Welcome to the AI Bot! Send me text, voice notes, images, or PDFs.');
 });
 
-bot.on('text', (ctx) => {
-    ctx.reply(`Echo: ${ctx.message.text}`);
+bot.on('text', async (ctx) => {
+    const userId = ctx.from.id.toString();
+    const text = ctx.message.text;
+    
+    // Send a typing indicator so the user knows the AI is thinking
+    await ctx.sendChatAction('typing');
+    
+    // Generate the personalized journal response
+    const aiResponse = await generateJournalResponse(userId, text);
+    
+    await ctx.reply(aiResponse);
 });
 
 export const launchBot = async () => {
