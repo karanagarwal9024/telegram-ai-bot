@@ -1,6 +1,7 @@
 import { connectRedis } from './redis/client.js';
 import { launchBot } from './bot/telegram.js';
 import { startServer } from './auth/server.js';
+import { startMediaWorker } from './worker/mediaWorker.js';
 
 const main = async () => {
     try {
@@ -11,6 +12,9 @@ const main = async () => {
 
         // 2. Connect to Redis
         await connectRedis();
+        
+        // 3. Start BullMQ Background Worker
+        startMediaWorker();
 
         // 3. Launch Telegram Bot (Long polling for now)
         await launchBot();

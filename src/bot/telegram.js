@@ -3,6 +3,11 @@ import dotenv from 'dotenv';
 import { redis } from '../redis/client.js';
 import { supabase } from '../supabase/client.js';
 import { generateJournalResponse } from '../ai/journal.js';
+import { mediaQueue } from '../queue/index.js';
+import { downloadTelegramFile } from './mediaHelper.js';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import fs from 'fs';
 
 dotenv.config();
 
@@ -13,6 +18,13 @@ if (!token) {
 }
 
 export const bot = new Telegraf(token);
+
+// A dedicated model for analyzing images
+const visionModel = new ChatGoogleGenerativeAI({
+    model: 'gemini-2.5-flash',
+    apiKey: process.env.GOOGLE_API_KEY,
+    temperature: 0.4,
+});
 
 bot.command('login', async (ctx) => {
     const userId = ctx.from.id;
@@ -106,13 +118,80 @@ bot.on('text', async (ctx) => {
     const userId = ctx.from.id.toString();
     const text = ctx.message.text;
     
-    // Send a typing indicator so the user knows the AI is thinking
     await ctx.sendChatAction('typing');
-    
-    // Generate the personalized journal response
     const aiResponse = await generateJournalResponse(userId, text);
     
+    // Log text to database
+    await supabase.from('journal_entries').insert({
+        telegram_id: userId,
+        content_type: 'text',
+        raw_content: text,
+        ai_summary: aiResponse
+    });
+    
     await ctx.reply(aiResponse);
+});
+
+// Handle Photos
+bot.on('photo', async (ctx) => {
+    const userId = ctx.from.id.toString();
+    const caption = ctx.message.caption || '';
+    
+    await ctx.sendChatAction('typing');
+    
+    // Get highest resolution photo
+    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    const fileId = photo.file_id;
+    const fileName = `${Date.now()}_image.jpg`;
+    
+    try {
+        // 1. Download file locally
+        const filePath = await downloadTelegramFile(fileId, fileName);
+        
+        // 2. Read image for Gemini Vision
+        const imageBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
+        
+        // 3. Get AI Analysis immediately
+        const visionResponse = await visionModel.invoke([
+            new SystemMessage("You are a helpful journaling assistant. Analyze the image and provide a thoughtful summary or reaction."),
+            new HumanMessage({
+                content: [
+                    { type: "text", text: `Here is a photo for my journal. Caption: ${caption}` },
+                    { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } }
+                ]
+            })
+        ]);
+        const aiSummary = visionResponse.content;
+        
+        // 4. Save to Database instantly
+        const { data: dbData } = await supabase
+            .from('journal_entries')
+            .insert({
+                telegram_id: userId,
+                content_type: 'image',
+                raw_content: caption,
+                ai_summary: aiSummary
+            })
+            .select()
+            .single();
+            
+        // 5. Instantly reply to unblock the user
+        await ctx.reply(aiSummary);
+        
+        // 6. Send the heavy upload task to BullMQ
+        if (dbData) {
+            await mediaQueue.add('upload-image', {
+                telegramId: userId,
+                filePath,
+                fileName,
+                mimeType: 'image/jpeg',
+                journalEntryId: dbData.id
+            });
+        }
+    } catch (error) {
+        console.error("Photo Processing Error:", error);
+        ctx.reply("❌ Sorry, I had trouble processing your photo.");
+    }
 });
 
 export const launchBot = async () => {

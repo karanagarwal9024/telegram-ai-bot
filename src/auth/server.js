@@ -16,10 +16,11 @@ app.get('/auth/login', async (req, res) => {
     const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-            // We pass the telegramUserId as a query param to the callback
             redirectTo: `http://localhost:3000/auth/callback?userId=${telegramUserId}`,
+            scopes: 'https://www.googleapis.com/auth/drive.file',
             queryParams: {
-                prompt: 'consent'
+                prompt: 'consent',
+                access_type: 'offline'
             }
         },
     });
@@ -54,13 +55,17 @@ app.get('/auth/callback', async (req, res) => {
     // Success! 
     // 1. Store the permanent mapping in Supabase database
     const supabaseUserId = data.session.user.id;
+    const providerToken = data.session.provider_token;
+    const providerRefreshToken = data.session.provider_refresh_token;
     
     try {
         const { error: dbError } = await supabase
             .from('telegram_users')
             .upsert({ 
                 telegram_id: telegramUserId.toString(), 
-                supabase_user_id: supabaseUserId 
+                supabase_user_id: supabaseUserId,
+                provider_token: providerToken,
+                provider_refresh_token: providerRefreshToken
             });
             
         if (dbError) throw dbError;
