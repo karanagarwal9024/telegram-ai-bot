@@ -3,7 +3,10 @@ import fs from 'fs';
 
 export const uploadToDrive = async (filePath, fileName, mimeType, providerToken, providerRefreshToken) => {
     try {
-        const oauth2Client = new google.auth.OAuth2();
+        const oauth2Client = new google.auth.OAuth2(
+            process.env.GOOGLE_CLIENT_ID,
+            process.env.GOOGLE_CLIENT_SECRET
+        );
 
         // Set the tokens we got from Supabase
         oauth2Client.setCredentials({
