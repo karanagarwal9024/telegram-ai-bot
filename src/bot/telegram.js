@@ -21,7 +21,7 @@ export const bot = new Telegraf(token);
 
 // A dedicated model for analyzing images
 const visionModel = new ChatGoogleGenerativeAI({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash',
     apiKey: process.env.GOOGLE_API_KEY,
     temperature: 0.4,
 });
@@ -191,6 +191,74 @@ bot.on('photo', async (ctx) => {
     } catch (error) {
         console.error("Photo Processing Error:", error);
         ctx.reply("❌ Sorry, I had trouble processing your photo.");
+    }
+});
+
+// Handle Documents (PDFs, Word Docs, etc.)
+bot.on('document', async (ctx) => {
+    const userId = ctx.from.id.toString();
+    const document = ctx.message.document;
+    const caption = ctx.message.caption || '';
+    
+    await ctx.sendChatAction('typing');
+    
+    const fileId = document.file_id;
+    const fileName = document.file_name || `${Date.now()}_file`;
+    const mimeType = document.mime_type;
+    
+    try {
+        // 1. Download file locally
+        const filePath = await downloadTelegramFile(fileId, fileName);
+        
+        let aiSummary = "AI summary is not supported for this file type, but I have backed it up to your Drive!";
+        
+        // 2. Check if file is supported by Gemini (PDF or Text)
+        const supportedMimeTypes = ['application/pdf', 'text/plain', 'text/csv'];
+        
+        if (supportedMimeTypes.includes(mimeType)) {
+            const fileBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
+            
+            const visionResponse = await visionModel.invoke([
+                new SystemMessage("You are a helpful journaling assistant. Analyze the document and provide a thoughtful summary or reaction."),
+                new HumanMessage({
+                    content: [
+                        { type: "text", text: `Here is a document for my journal. Caption: ${caption}` },
+                        // LangChain uses the image_url field to pass all multimodal base64 files
+                        { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileBase64}` } }
+                    ]
+                })
+            ]);
+            aiSummary = visionResponse.content;
+        }
+        
+        // 3. Save to Database instantly
+        const { data: dbData } = await supabase
+            .from('journal_entries')
+            .insert({
+                telegram_id: userId,
+                content_type: 'document',
+                raw_content: caption,
+                ai_summary: aiSummary
+            })
+            .select()
+            .single();
+            
+        // 4. Instantly reply to unblock the user
+        await ctx.reply(aiSummary);
+        
+        // 5. Send the heavy upload task to BullMQ
+        if (dbData) {
+            await mediaQueue.add('upload-document', {
+                telegramId: userId,
+                filePath,
+                fileName,
+                mimeType: mimeType,
+                journalEntryId: dbData.id
+            });
+        }
+    } catch (error) {
+        console.error("Document Processing Error:", error);
+        ctx.reply("❌ Sorry, I had trouble processing your document.");
     }
 });
 

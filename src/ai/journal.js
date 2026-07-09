@@ -6,7 +6,7 @@ dotenv.config();
 
 // Initialize the Gemini model
 const model = new ChatGoogle({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash',
     apiKey: process.env.GOOGLE_API_KEY,
     temperature: 0.7,
 });

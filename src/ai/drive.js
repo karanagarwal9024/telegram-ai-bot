@@ -8,9 +8,10 @@ export const uploadToDrive = async (filePath, fileName, mimeType, providerToken,
             process.env.GOOGLE_CLIENT_SECRET
         );
 
-        // Set the tokens we got from Supabase
+        // We ONLY pass the refresh_token. Because we don't know the exact expiration date 
+        // of the access token, passing only the refresh token forces Google to fetch a 
+        // brand new access token every single time, guaranteeing it never fails!
         oauth2Client.setCredentials({
-            access_token: providerToken,
             refresh_token: providerRefreshToken
         });
 
