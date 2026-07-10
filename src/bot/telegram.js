@@ -19,9 +19,17 @@ if (!token) {
 
 export const bot = new Telegraf(token);
 
+// Utility to send long messages to Telegram without hitting the 4096 char limit
+const sendLongMessage = async (ctx, text) => {
+    const MAX_LENGTH = 4000;
+    for (let i = 0; i < text.length; i += MAX_LENGTH) {
+        await ctx.reply(text.slice(i, i + MAX_LENGTH));
+    }
+};
+
 // A dedicated model for analyzing images
 const visionModel = new ChatGoogleGenerativeAI({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-2.5-flash',
     apiKey: process.env.GOOGLE_API_KEY,
     temperature: 0.4,
 });
@@ -129,7 +137,7 @@ bot.on('text', async (ctx) => {
         ai_summary: aiResponse
     });
     
-    await ctx.reply(aiResponse);
+    await sendLongMessage(ctx, aiResponse);
 });
 
 // Handle Photos
@@ -175,10 +183,7 @@ bot.on('photo', async (ctx) => {
             .select()
             .single();
             
-        // 5. Instantly reply to unblock the user
-        await ctx.reply(aiSummary);
-        
-        // 6. Send the heavy upload task to BullMQ
+        // 5. Send the heavy upload task to BullMQ FIRST to ensure it never gets skipped
         if (dbData) {
             await mediaQueue.add('upload-image', {
                 telegramId: userId,
@@ -188,6 +193,10 @@ bot.on('photo', async (ctx) => {
                 journalEntryId: dbData.id
             });
         }
+            
+        // 6. Instantly reply to unblock the user using the split message helper
+        await sendLongMessage(ctx, aiSummary);
+        
     } catch (error) {
         console.error("Photo Processing Error:", error);
         ctx.reply("❌ Sorry, I had trouble processing your photo.");
@@ -212,8 +221,17 @@ bot.on('document', async (ctx) => {
         
         let aiSummary = "AI summary is not supported for this file type, but I have backed it up to your Drive!";
         
-        // 2. Check if file is supported by Gemini (PDF or Text)
-        const supportedMimeTypes = ['application/pdf', 'text/plain', 'text/csv'];
+        // 2. Check if file is supported by Gemini (PDF, Text, or Uncompressed Images)
+        const supportedMimeTypes = [
+            'application/pdf', 
+            'text/plain', 
+            'text/csv',
+            'image/jpeg',
+            'image/png',
+            'image/webp',
+            'image/heic',
+            'image/heif'
+        ];
         
         if (supportedMimeTypes.includes(mimeType)) {
             const fileBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
@@ -243,10 +261,7 @@ bot.on('document', async (ctx) => {
             .select()
             .single();
             
-        // 4. Instantly reply to unblock the user
-        await ctx.reply(aiSummary);
-        
-        // 5. Send the heavy upload task to BullMQ
+        // 4. Send the heavy upload task to BullMQ FIRST
         if (dbData) {
             await mediaQueue.add('upload-document', {
                 telegramId: userId,
@@ -256,6 +271,10 @@ bot.on('document', async (ctx) => {
                 journalEntryId: dbData.id
             });
         }
+            
+        // 5. Instantly reply to unblock the user
+        await sendLongMessage(ctx, aiSummary);
+        
     } catch (error) {
         console.error("Document Processing Error:", error);
         ctx.reply("❌ Sorry, I had trouble processing your document.");
