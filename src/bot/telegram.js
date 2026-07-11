@@ -7,6 +7,7 @@ import { mediaQueue } from '../queue/index.js';
 import { downloadTelegramFile } from './mediaHelper.js';
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { generateEmbedding } from '../ai/memory.js';
 import fs from 'fs';
 
 dotenv.config();
@@ -129,12 +130,16 @@ bot.on('text', async (ctx) => {
     await ctx.sendChatAction('typing');
     const aiResponse = await generateJournalResponse(userId, text);
     
+    const embeddingText = `User: ${text}\nAI: ${aiResponse}`;
+    const embeddingVector = await generateEmbedding(embeddingText);
+    
     // Log text to database
     await supabase.from('journal_entries').insert({
         telegram_id: userId,
         content_type: 'text',
         raw_content: text,
-        ai_summary: aiResponse
+        ai_summary: aiResponse,
+        embedding: embeddingVector
     });
     
     await sendLongMessage(ctx, aiResponse);
@@ -161,7 +166,7 @@ bot.on('photo', async (ctx) => {
         
         // 3. Get AI Analysis immediately
         const visionResponse = await visionModel.invoke([
-            new SystemMessage("You are a helpful journaling assistant. Analyze the image and provide a thoughtful summary or reaction."),
+            new SystemMessage("You are a helpful journaling assistant. First, provide a highly detailed, descriptive transcription of everything visible in this image (so we have a permanent memory of it). Then, provide a thoughtful, supportive reaction to the user."),
             new HumanMessage({
                 content: [
                     { type: "text", text: `Here is a photo for my journal. Caption: ${caption}` },
@@ -171,6 +176,9 @@ bot.on('photo', async (ctx) => {
         ]);
         const aiSummary = visionResponse.content;
         
+        const embeddingText = `User: ${caption}\nAI: ${aiSummary}`;
+        const embeddingVector = await generateEmbedding(embeddingText);
+        
         // 4. Save to Database instantly
         const { data: dbData } = await supabase
             .from('journal_entries')
@@ -178,7 +186,8 @@ bot.on('photo', async (ctx) => {
                 telegram_id: userId,
                 content_type: 'image',
                 raw_content: caption,
-                ai_summary: aiSummary
+                ai_summary: aiSummary,
+                embedding: embeddingVector
             })
             .select()
             .single();
@@ -237,7 +246,7 @@ bot.on('document', async (ctx) => {
             const fileBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
             
             const visionResponse = await visionModel.invoke([
-                new SystemMessage("You are a helpful journaling assistant. Analyze the document and provide a thoughtful summary or reaction."),
+                new SystemMessage("You are a helpful journaling assistant. First, provide a highly detailed summary and transcription of the key information in this document (so we have a permanent memory of its exact contents). Then, provide a thoughtful, supportive reaction to the user."),
                 new HumanMessage({
                     content: [
                         { type: "text", text: `Here is a document for my journal. Caption: ${caption}` },
@@ -249,6 +258,9 @@ bot.on('document', async (ctx) => {
             aiSummary = visionResponse.content;
         }
         
+        const embeddingText = `User: ${caption}\nAI: ${aiSummary}`;
+        const embeddingVector = await generateEmbedding(embeddingText);
+        
         // 3. Save to Database instantly
         const { data: dbData } = await supabase
             .from('journal_entries')
@@ -256,7 +268,8 @@ bot.on('document', async (ctx) => {
                 telegram_id: userId,
                 content_type: 'document',
                 raw_content: caption,
-                ai_summary: aiSummary
+                ai_summary: aiSummary,
+                embedding: embeddingVector
             })
             .select()
             .single();
