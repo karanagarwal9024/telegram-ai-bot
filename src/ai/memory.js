@@ -26,7 +26,7 @@ export const searchSimilarEntries = async (telegramId, queryText, limit = 15) =>
         // Call the custom Supabase stored procedure (RPC)
         const { data, error } = await supabase.rpc('match_journal_entries', {
             query_embedding: queryVector,
-            match_threshold: 0.5, // 50% similarity threshold
+            match_threshold: 0.2, // 20% similarity threshold
             match_count: limit,
             p_telegram_id: telegramId
         });

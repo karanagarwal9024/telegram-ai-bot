@@ -30,7 +30,7 @@ const sendLongMessage = async (ctx, text) => {
 
 // A dedicated model for analyzing images
 const visionModel = new ChatGoogleGenerativeAI({
-    model: 'gemini-2.5-flash',
+    model: 'gemini-3.5-flash',
     apiKey: process.env.GOOGLE_API_KEY,
     temperature: 0.4,
 });
@@ -166,7 +166,14 @@ bot.on('photo', async (ctx) => {
         
         // 3. Get AI Analysis immediately
         const visionResponse = await visionModel.invoke([
-            new SystemMessage("You are a helpful journaling assistant. First, provide a highly detailed, descriptive transcription of everything visible in this image (so we have a permanent memory of it). Then, provide a thoughtful, supportive reaction to the user."),
+            new SystemMessage(`You are a helpful journaling assistant. First, provide a highly detailed, descriptive transcription of everything visible in this image (so we have a permanent memory of it). 
+
+CRITICAL INSTRUCTION FOR YOUR OUTPUT FORMAT:
+You MUST separate your internal transcription from your reply to the user by using exactly this delimiter: "---REPLY---"
+Everything before "---REPLY---" will be saved to the database. Everything after "---REPLY---" will be sent to the user.
+
+CRITICAL INSTRUCTION FOR YOUR REPLY:
+For your reaction to the user (after the delimiter), act like a real human texting a friend. Keep it brief if the image is simple. DO NOT use any markdown formatting like bold (**), italics (*), or bullet points in your reaction. Reply in plain, normal text message style.`),
             new HumanMessage({
                 content: [
                     { type: "text", text: `Here is a photo for my journal. Caption: ${caption}` },
@@ -174,7 +181,19 @@ bot.on('photo', async (ctx) => {
                 ]
             })
         ]);
-        const aiSummary = visionResponse.content;
+        
+        const visionContent = visionResponse.content;
+        let aiSummary = visionContent;
+        let replyToUser = visionContent;
+        
+        if (visionContent.includes('---REPLY---')) {
+            const parts = visionContent.split('---REPLY---');
+            aiSummary = parts[0].trim();
+            replyToUser = parts[1].trim();
+        } else {
+            // Fallback in case AI forgets the delimiter
+            replyToUser = "Got it, I've saved this photo to your journal!";
+        }
         
         const embeddingText = `User: ${caption}\nAI: ${aiSummary}`;
         const embeddingVector = await generateEmbedding(embeddingText);
@@ -204,7 +223,7 @@ bot.on('photo', async (ctx) => {
         }
             
         // 6. Instantly reply to unblock the user using the split message helper
-        await sendLongMessage(ctx, aiSummary);
+        await sendLongMessage(ctx, replyToUser);
         
     } catch (error) {
         console.error("Photo Processing Error:", error);
@@ -229,6 +248,7 @@ bot.on('document', async (ctx) => {
         const filePath = await downloadTelegramFile(fileId, fileName);
         
         let aiSummary = "AI summary is not supported for this file type, but I have backed it up to your Drive!";
+        let replyToUser = "I have safely backed this up to your Drive!";
         
         // 2. Check if file is supported by Gemini (PDF, Text, or Uncompressed Images)
         const supportedMimeTypes = [
@@ -243,19 +263,40 @@ bot.on('document', async (ctx) => {
         ];
         
         if (supportedMimeTypes.includes(mimeType)) {
-            const fileBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
-            
-            const visionResponse = await visionModel.invoke([
-                new SystemMessage("You are a helpful journaling assistant. First, provide a highly detailed summary and transcription of the key information in this document (so we have a permanent memory of its exact contents). Then, provide a thoughtful, supportive reaction to the user."),
-                new HumanMessage({
-                    content: [
-                        { type: "text", text: `Here is a document for my journal. Caption: ${caption}` },
-                        // LangChain uses the image_url field to pass all multimodal base64 files
-                        { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileBase64}` } }
-                    ]
-                })
-            ]);
-            aiSummary = visionResponse.content;
+            // Check if file is too large for Telegram's 90-second synchronous limit (set to 3MB)
+            if (document.file_size && document.file_size > 3 * 1024 * 1024) {
+                aiSummary = "This document is too large for me to read instantly in chat, but I have securely backed it up to your Drive!";
+            } else {
+                const fileBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
+                
+                const visionResponse = await visionModel.invoke([
+                    new SystemMessage(`You are a helpful journaling assistant. First, provide a highly detailed summary and transcription of the key information in this document (so we have a permanent memory of its exact contents). 
+
+CRITICAL INSTRUCTION FOR YOUR OUTPUT FORMAT:
+You MUST separate your internal transcription from your reply to the user by using exactly this delimiter: "---REPLY---"
+Everything before "---REPLY---" will be saved to the database. Everything after "---REPLY---" will be sent to the user.
+
+CRITICAL INSTRUCTION FOR YOUR REPLY:
+For your reaction to the user (after the delimiter), act like a real human texting a friend. Keep it brief if the document is simple. DO NOT use any markdown formatting like bold (**), italics (*), or bullet points in your reaction. Reply in plain, normal text message style.`),
+                    new HumanMessage({
+                        content: [
+                            { type: "text", text: `Here is a document for my journal. Caption: ${caption}` },
+                            // LangChain uses the image_url field to pass all multimodal base64 files
+                            { type: "image_url", image_url: { url: `data:${mimeType};base64,${fileBase64}` } }
+                        ]
+                    })
+                ]);
+                
+                const visionContent = visionResponse.content;
+                if (visionContent.includes('---REPLY---')) {
+                    const parts = visionContent.split('---REPLY---');
+                    aiSummary = parts[0].trim();
+                    replyToUser = parts[1].trim();
+                } else {
+                    aiSummary = visionContent;
+                    replyToUser = "Got it, I've saved this document to your journal!";
+                }
+            }
         }
         
         const embeddingText = `User: ${caption}\nAI: ${aiSummary}`;
@@ -286,7 +327,7 @@ bot.on('document', async (ctx) => {
         }
             
         // 5. Instantly reply to unblock the user
-        await sendLongMessage(ctx, aiSummary);
+        await sendLongMessage(ctx, replyToUser);
         
     } catch (error) {
         console.error("Document Processing Error:", error);

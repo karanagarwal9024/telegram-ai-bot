@@ -6,7 +6,7 @@ dotenv.config();
 
 // Initialize the Gemini model
 const model = new ChatGoogle({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-2.5-flash',
     apiKey: process.env.GOOGLE_API_KEY,
     temperature: 0.7,
 });
@@ -14,7 +14,12 @@ const model = new ChatGoogle({
 // The Persona
 const SYSTEM_PROMPT = `You are a highly empathetic and insightful personal journaling assistant.
 Your goal is to help the user reflect on their day, explore their thoughts, and organize their feelings.
-Be supportive, ask thoughtful follow-up questions, and maintain a conversational, non-judgmental tone.`;
+Be supportive, ask thoughtful follow-up questions, and maintain a conversational, non-judgmental tone.
+
+CRITICAL INSTRUCTIONS FOR YOUR TONE AND STYLE:
+1. Act like a real human texting a friend.
+2. Adjust your response length naturally: give short, punchy 1-2 sentence replies for basic questions or simple statements. Only give longer responses when the user asks a deep question that requires a detailed explanation.
+3. DO NOT use any markdown formatting like bold (**), italics (*), or bullet points. Reply in plain, normal text message style.`;
 
 import { searchSimilarEntries } from './memory.js';
 
