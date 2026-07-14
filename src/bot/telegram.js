@@ -166,14 +166,7 @@ bot.on('photo', async (ctx) => {
         
         // 3. Get AI Analysis immediately
         const visionResponse = await visionModel.invoke([
-            new SystemMessage(`You are a helpful journaling assistant. First, provide a highly detailed, descriptive transcription of everything visible in this image (so we have a permanent memory of it). 
-
-CRITICAL INSTRUCTION FOR YOUR OUTPUT FORMAT:
-You MUST separate your internal transcription from your reply to the user by using exactly this delimiter: "---REPLY---"
-Everything before "---REPLY---" will be saved to the database. Everything after "---REPLY---" will be sent to the user.
-
-CRITICAL INSTRUCTION FOR YOUR REPLY:
-For your reaction to the user (after the delimiter), act like a real human texting a friend. Keep it brief if the image is simple. DO NOT use any markdown formatting like bold (**), italics (*), or bullet points in your reaction. Reply in plain, normal text message style.`),
+            new SystemMessage(`Please provide a highly detailed, descriptive transcription of everything visible in this image. Do not reply to me, just provide the exact description of the image.`),
             new HumanMessage({
                 content: [
                     { type: "text", text: `Here is a photo for my journal. Caption: ${caption}` },
@@ -182,20 +175,13 @@ For your reaction to the user (after the delimiter), act like a real human texti
             })
         ]);
         
-        const visionContent = visionResponse.content;
-        let aiSummary = visionContent;
-        let replyToUser = visionContent;
+        // Pass 1: Extraction
+        let transcription = visionResponse.content;
         
-        if (visionContent.includes('---REPLY---')) {
-            const parts = visionContent.split('---REPLY---');
-            aiSummary = parts[0].trim();
-            replyToUser = parts[1].trim();
-        } else {
-            // Fallback in case AI forgets the delimiter
-            replyToUser = "Got it, I've saved this photo to your journal!";
-        }
+        // Pass 2: Memory Retrieval & Generation
+        const aiResponse = await generateJournalResponse(userId, `[Photo Uploaded. Caption: "${caption}" | Image Description: "${transcription}"]`);
         
-        const embeddingText = `User: ${caption}\nAI: ${aiSummary}`;
+        const embeddingText = `User (Photo): ${caption}\nImage Description: ${transcription}\nAI: ${aiResponse}`;
         const embeddingVector = await generateEmbedding(embeddingText);
         
         // 4. Save to Database instantly
@@ -204,8 +190,8 @@ For your reaction to the user (after the delimiter), act like a real human texti
             .insert({
                 telegram_id: userId,
                 content_type: 'image',
-                raw_content: caption,
-                ai_summary: aiSummary,
+                raw_content: caption ? `[Photo] ${caption} | Description: ${transcription}` : `[Photo] Description: ${transcription}`,
+                ai_summary: aiResponse,
                 embedding: embeddingVector
             })
             .select()
@@ -223,7 +209,7 @@ For your reaction to the user (after the delimiter), act like a real human texti
         }
             
         // 6. Instantly reply to unblock the user using the split message helper
-        await sendLongMessage(ctx, replyToUser);
+        await sendLongMessage(ctx, aiResponse);
         
     } catch (error) {
         console.error("Photo Processing Error:", error);
@@ -262,6 +248,8 @@ bot.on('document', async (ctx) => {
             'image/heif'
         ];
         
+        let transcriptionForEmbedding = "N/A";
+        
         if (supportedMimeTypes.includes(mimeType)) {
             // Check if file is too large for Telegram's 90-second synchronous limit (set to 3MB)
             if (document.file_size && document.file_size > 3 * 1024 * 1024) {
@@ -270,14 +258,7 @@ bot.on('document', async (ctx) => {
                 const fileBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
                 
                 const visionResponse = await visionModel.invoke([
-                    new SystemMessage(`You are a helpful journaling assistant. First, provide a highly detailed summary and transcription of the key information in this document (so we have a permanent memory of its exact contents). 
-
-CRITICAL INSTRUCTION FOR YOUR OUTPUT FORMAT:
-You MUST separate your internal transcription from your reply to the user by using exactly this delimiter: "---REPLY---"
-Everything before "---REPLY---" will be saved to the database. Everything after "---REPLY---" will be sent to the user.
-
-CRITICAL INSTRUCTION FOR YOUR REPLY:
-For your reaction to the user (after the delimiter), act like a real human texting a friend. Keep it brief if the document is simple. DO NOT use any markdown formatting like bold (**), italics (*), or bullet points in your reaction. Reply in plain, normal text message style.`),
+                    new SystemMessage(`Please provide a highly detailed summary and transcription of the key information in this document. Do not reply to me, just provide the exact transcription/summary.`),
                     new HumanMessage({
                         content: [
                             { type: "text", text: `Here is a document for my journal. Caption: ${caption}` },
@@ -287,19 +268,20 @@ For your reaction to the user (after the delimiter), act like a real human texti
                     })
                 ]);
                 
-                const visionContent = visionResponse.content;
-                if (visionContent.includes('---REPLY---')) {
-                    const parts = visionContent.split('---REPLY---');
-                    aiSummary = parts[0].trim();
-                    replyToUser = parts[1].trim();
-                } else {
-                    aiSummary = visionContent;
-                    replyToUser = "Got it, I've saved this document to your journal!";
-                }
+                // Pass 1: Extraction
+                let transcription = visionResponse.content;
+                
+                // Pass 2: Memory Retrieval & Generation
+                const aiResponse = await generateJournalResponse(userId, `[Document Uploaded. Caption: "${caption}" | Document Content/Summary: "${transcription}"]`);
+                aiSummary = aiResponse;
+                replyToUser = aiResponse;
+                
+                // Update for embedding
+                transcriptionForEmbedding = transcription;
             }
         }
         
-        const embeddingText = `User: ${caption}\nAI: ${aiSummary}`;
+        const embeddingText = `User (Document): ${caption}\nDocument Content: ${transcriptionForEmbedding}\nAI: ${aiSummary}`;
         const embeddingVector = await generateEmbedding(embeddingText);
         
         // 3. Save to Database instantly
@@ -308,7 +290,7 @@ For your reaction to the user (after the delimiter), act like a real human texti
             .insert({
                 telegram_id: userId,
                 content_type: 'document',
-                raw_content: caption,
+                raw_content: caption ? `[Document] ${caption} | Content: ${transcriptionForEmbedding}` : `[Document] Content: ${transcriptionForEmbedding}`,
                 ai_summary: aiSummary,
                 embedding: embeddingVector
             })
@@ -332,6 +314,83 @@ For your reaction to the user (after the delimiter), act like a real human texti
     } catch (error) {
         console.error("Document Processing Error:", error);
         ctx.reply("❌ Sorry, I had trouble processing your document.");
+    }
+});
+
+// Handle Voice Messages
+bot.on('voice', async (ctx) => {
+    const userId = ctx.from.id.toString();
+    const voice = ctx.message.voice;
+    
+    await ctx.sendChatAction('typing');
+    
+    const fileId = voice.file_id;
+    const fileName = `${Date.now()}_voice.ogg`;
+    
+    try {
+        // 1. Download file locally
+        const filePath = await downloadTelegramFile(fileId, fileName);
+        const fileBase64 = fs.readFileSync(filePath, { encoding: 'base64' });
+        
+        // 2. Fetch Gemini REST API directly for audio support
+        const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' + process.env.GOOGLE_API_KEY;
+        const systemPrompt = `Please provide a highly detailed transcription of everything said in this voice note. Do not reply to me, just provide the exact transcription of what the user is saying.`;
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                systemInstruction: {
+                    parts: [{ text: systemPrompt }]
+                },
+                contents: [{
+                    parts: [
+                        { text: `Here is a voice note for my journal.` },
+                        { inlineData: { mimeType: 'audio/ogg', data: fileBase64 } }
+                    ]
+                }]
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            throw new Error(`Gemini API Error: ${data.error.message}`);
+        }
+        
+        // Pass 1: Extraction
+        let transcription = data?.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't process the audio.";
+        
+        // Pass 2: Memory Retrieval & Generation
+        const aiResponse = await generateJournalResponse(userId, `[Voice Note Transcription]: ${transcription}`);
+        
+        const embeddingText = `User (Voice Note): ${transcription}\nAI: ${aiResponse}`;
+        const embeddingVector = await generateEmbedding(embeddingText);
+        
+        // 3. Save to Database instantly
+        const { data: dbData } = await supabase
+            .from('journal_entries')
+            .insert({
+                telegram_id: userId,
+                content_type: 'voice',
+                raw_content: `[Voice Transcription]: ${transcription}`,
+                ai_summary: aiResponse,
+                embedding: embeddingVector
+            })
+            .select()
+            .single();
+            
+        // 4. Delete the temporary file from the server
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+            
+        // 5. Instantly reply to unblock the user
+        await sendLongMessage(ctx, aiResponse);
+        
+    } catch (error) {
+        console.error("Voice Processing Error:", error);
+        ctx.reply(`❌ Sorry, I had trouble processing your voice message.\n\nError: ${error.message}`);
     }
 });
 
