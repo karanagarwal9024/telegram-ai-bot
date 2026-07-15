@@ -30,7 +30,7 @@ const sendLongMessage = async (ctx, text) => {
 
 // A dedicated model for analyzing images
 const visionModel = new ChatGoogleGenerativeAI({
-    model: 'gemini-3.5-flash',
+    model: 'gemini-2.5-flash',
     apiKey: process.env.GOOGLE_API_KEY,
     temperature: 0.4,
 });
