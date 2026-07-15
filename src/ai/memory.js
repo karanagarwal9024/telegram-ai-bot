@@ -17,8 +17,8 @@ export const generateEmbedding = async (text) => {
     }
 };
 
-// Performs a Semantic Similarity search using Supabase pgvector
-export const searchSimilarEntries = async (telegramId, queryText, limit = 15) => {
+// Performs a Semantic Similarity search using Supabase pgvector with Metadata Pre-Filtering
+export const searchSimilarEntries = async (telegramId, queryText, categoryFilter = null, tagsFilter = [], limit = 15) => {
     try {
         const queryVector = await generateEmbedding(queryText);
         if (!queryVector) return [];
@@ -28,7 +28,9 @@ export const searchSimilarEntries = async (telegramId, queryText, limit = 15) =>
             query_embedding: queryVector,
             match_threshold: 0.2, // 20% similarity threshold
             match_count: limit,
-            p_telegram_id: telegramId
+            p_telegram_id: telegramId,
+            p_category: categoryFilter,
+            p_tags: tagsFilter
         });
 
         if (error) {

@@ -33,9 +33,35 @@ TAGS: sleep, diet, feeling better`;
 
 import { searchSimilarEntries } from './memory.js';
 
+export const analyzeQuery = async (userInput) => {
+    const prompt = `Analyze this user message for a journaling app.
+If the user is trying to recall past memories that belong to a clear category (e.g., "What was my workout?"), output that Category.
+If the query is just a broad statement or a normal journal entry (e.g. "I went to the store today"), output null for category.
+
+Output ONLY a raw JSON object like this (no markdown, no backticks):
+{"category": "Health"}
+
+User Message: "${userInput}"`;
+
+    try {
+        const response = await model.invoke([new HumanMessage(prompt)]);
+        let text = response.content.replace(/```json/g, '').replace(/```/g, '').trim();
+        const parsed = JSON.parse(text);
+        return {
+            categoryFilter: parsed.category || null,
+            tagsFilter: []
+        };
+    } catch (error) {
+        console.error("Query Analysis Error:", error);
+        return { categoryFilter: null, tagsFilter: [] };
+    }
+};
+
 export const generateJournalResponse = async (userId, userInput) => {
-    // 1. Search for relevant past entries using Vector Similarity
-    const pastContext = await searchSimilarEntries(userId, userInput);
+    // 1. Search for relevant past entries using pure Vector Similarity
+    // We bypass the Hard-Filter because AI-generated categories (like "Family" vs "Personal") 
+    // can mismatch and accidentally hide valid memories!
+    const pastContext = await searchSimilarEntries(userId, userInput, null, []);
     
     let contextString = "";
     if (pastContext.length > 0) {
@@ -53,13 +79,13 @@ export const generateJournalResponse = async (userId, userInput) => {
         });
     }
 
-    // 2. Create a stateless array with the persona, the injected past memory, and the immediate user input
+    // 3. Create a stateless array with the persona, the injected past memory, and the immediate user input
     const messages = [
         new SystemMessage(SYSTEM_PROMPT + contextString),
         new HumanMessage(userInput)
     ];
 
-    // 3. Generate the AI response statelessly and parse tags/category
+    // 4. Generate the AI response statelessly and parse tags/category
     try {
         const aiResponse = await model.invoke(messages);
         const fullContent = aiResponse.content;
