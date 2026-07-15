@@ -9,7 +9,6 @@ An enterprise-grade Telegram bot built to act as your ultimate personal journali
     *   **Pass 1**: Analyzes text/media using Gemini Vision or Gemini Audio to extract rich transcriptions.
     *   **Pass 2**: Retrieves related past context from the database and generates a conversational reply.
 *   **AI-Based Categorization & Tagging**: Automatically extracts overarching categories (e.g., "Health", "Work") and granular tags (e.g., `#coding`, `#gym`) behind the scenes without cluttering your Telegram chat.
-*   **Metadata Pre-Filtering Search**: An enterprise optimization that uses an AI Query Analyzer to deduce the category of your question and hard-filters the database *before* running expensive vector math, ensuring sub-100ms retrieval speeds.
 *   **Asynchronous Workers (BullMQ)**: Heavy operations like analyzing 10MB PDFs or uploading files to Google Drive are completely offloaded to background workers (`Redis` + `BullMQ`), ensuring Telegram's 90-second timeout limit is never reached and the bot remains blazing fast.
 *   **Google Drive Integration**: Automatically securely backs up your uploaded images and PDFs to your Google Drive.
 *   **Network Resilience**: Implements intelligent retries and timeout extensions for Telegram API downloads.
@@ -83,8 +82,6 @@ docker-compose logs -f
 ## 🧠 How the Memory Works
 
 1. **You ask:** "What is my father's name?"
-2. **Query Analyzer:** The bot quickly pings Gemini to ask "Does this question fall into a specific category?". It returns `{"category": null}` (since you might have logged it under "Personal" or "Relationships").
-3. **Database Pre-Filter:** The bot pings Supabase and skips the category hard-filter.
-4. **Vector Math:** Supabase calculates the cosine distance (`<=>`) between the embedding of your question and the embeddings of all your past memories.
-5. **Context Injection:** The top 15 most mathematically similar memories are secretly injected into the AI's prompt as context.
-6. **Reply:** The AI responds naturally, completely aware of your history!
+2. **Vector Math:** Supabase calculates the cosine distance (`<=>`) between the embedding of your question and the embeddings of all your past memories.
+3. **Context Injection:** The top 15 most mathematically similar memories are secretly injected into the AI's prompt as context.
+4. **Reply:** The AI responds naturally, completely aware of your history!
