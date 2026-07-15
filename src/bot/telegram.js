@@ -128,7 +128,7 @@ bot.on('text', async (ctx) => {
     const text = ctx.message.text;
     
     await ctx.sendChatAction('typing');
-    const aiResponse = await generateJournalResponse(userId, text);
+    const { reply: aiResponse, tags, category } = await generateJournalResponse(userId, text);
     
     const embeddingText = `User: ${text}\nAI: ${aiResponse}`;
     const embeddingVector = await generateEmbedding(embeddingText);
@@ -139,7 +139,9 @@ bot.on('text', async (ctx) => {
         content_type: 'text',
         raw_content: text,
         ai_summary: aiResponse,
-        embedding: embeddingVector
+        embedding: embeddingVector,
+        tags: tags,
+        category: category
     });
     
     await sendLongMessage(ctx, aiResponse);
@@ -179,7 +181,7 @@ bot.on('photo', async (ctx) => {
         let transcription = visionResponse.content;
         
         // Pass 2: Memory Retrieval & Generation
-        const aiResponse = await generateJournalResponse(userId, `[Photo Uploaded. Caption: "${caption}" | Image Description: "${transcription}"]`);
+        const { reply: aiResponse, tags, category } = await generateJournalResponse(userId, `[Photo Uploaded. Caption: "${caption}" | Image Description: "${transcription}"]`);
         
         const embeddingText = `User (Photo): ${caption}\nImage Description: ${transcription}\nAI: ${aiResponse}`;
         const embeddingVector = await generateEmbedding(embeddingText);
@@ -192,7 +194,9 @@ bot.on('photo', async (ctx) => {
                 content_type: 'image',
                 raw_content: caption ? `[Photo] ${caption} | Description: ${transcription}` : `[Photo] Description: ${transcription}`,
                 ai_summary: aiResponse,
-                embedding: embeddingVector
+                embedding: embeddingVector,
+                tags: tags,
+                category: category
             })
             .select()
             .single();
@@ -235,6 +239,8 @@ bot.on('document', async (ctx) => {
         
         let aiSummary = "AI summary is not supported for this file type, but I have backed it up to your Drive!";
         let replyToUser = "I have safely backed this up to your Drive!";
+        let tags = [];
+        let category = null;
         
         // 2. Check if file is supported by Gemini (PDF, Text, or Uncompressed Images)
         const supportedMimeTypes = [
@@ -272,9 +278,11 @@ bot.on('document', async (ctx) => {
                 let transcription = visionResponse.content;
                 
                 // Pass 2: Memory Retrieval & Generation
-                const aiResponse = await generateJournalResponse(userId, `[Document Uploaded. Caption: "${caption}" | Document Content/Summary: "${transcription}"]`);
+                const { reply: aiResponse, tags: generatedTags, category: generatedCategory } = await generateJournalResponse(userId, `[Document Uploaded. Caption: "${caption}" | Document Content/Summary: "${transcription}"]`);
                 aiSummary = aiResponse;
                 replyToUser = aiResponse;
+                tags = generatedTags;
+                category = generatedCategory;
                 
                 // Update for embedding
                 transcriptionForEmbedding = transcription;
@@ -292,7 +300,9 @@ bot.on('document', async (ctx) => {
                 content_type: 'document',
                 raw_content: caption ? `[Document] ${caption} | Content: ${transcriptionForEmbedding}` : `[Document] Content: ${transcriptionForEmbedding}`,
                 ai_summary: aiSummary,
-                embedding: embeddingVector
+                embedding: embeddingVector,
+                tags: tags,
+                category: category
             })
             .select()
             .single();
@@ -362,7 +372,7 @@ bot.on('voice', async (ctx) => {
         let transcription = data?.candidates?.[0]?.content?.parts?.[0]?.text || "Sorry, I couldn't process the audio.";
         
         // Pass 2: Memory Retrieval & Generation
-        const aiResponse = await generateJournalResponse(userId, `[Voice Note Transcription]: ${transcription}`);
+        const { reply: aiResponse, tags, category } = await generateJournalResponse(userId, `[Voice Note Transcription]: ${transcription}`);
         
         const embeddingText = `User (Voice Note): ${transcription}\nAI: ${aiResponse}`;
         const embeddingVector = await generateEmbedding(embeddingText);
@@ -375,7 +385,9 @@ bot.on('voice', async (ctx) => {
                 content_type: 'voice',
                 raw_content: `[Voice Transcription]: ${transcription}`,
                 ai_summary: aiResponse,
-                embedding: embeddingVector
+                embedding: embeddingVector,
+                tags: tags,
+                category: category
             })
             .select()
             .single();

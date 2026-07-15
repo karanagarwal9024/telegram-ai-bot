@@ -19,7 +19,17 @@ Be supportive, ask thoughtful follow-up questions, and maintain a conversational
 CRITICAL INSTRUCTIONS FOR YOUR TONE AND STYLE:
 1. Act like a real human texting a friend.
 2. Adjust your response length naturally: give short, punchy 1-2 sentence replies for basic questions or simple statements. Only give longer responses when the user asks a deep question that requires a detailed explanation.
-3. DO NOT use any markdown formatting like bold (**), italics (*), or bullet points. Reply in plain, normal text message style.`;
+3. DO NOT use any markdown formatting like bold (**), italics (*), or bullet points in your reply. Reply in plain, normal text message style.
+
+CRITICAL INSTRUCTION FOR CATEGORIZATION AND TAGGING:
+At the very end of your response, you MUST append exactly two lines:
+1. A single high-level category word prefixed with 'CATEGORY:'.
+2. A list of 1-3 detailed tags prefixed with 'TAGS:'.
+
+Example output format:
+Your friendly reply message here...
+CATEGORY: Health
+TAGS: sleep, diet, feeling better`;
 
 import { searchSimilarEntries } from './memory.js';
 
@@ -49,12 +59,37 @@ export const generateJournalResponse = async (userId, userInput) => {
         new HumanMessage(userInput)
     ];
 
-    // 2. Generate the AI response statelessly
+    // 3. Generate the AI response statelessly and parse tags/category
     try {
         const aiResponse = await model.invoke(messages);
-        return aiResponse.content;
+        const fullContent = aiResponse.content;
+        
+        let reply = fullContent;
+        let tags = [];
+        let category = null;
+        
+        // Extract CATEGORY
+        const categoryMatch = fullContent.match(/CATEGORY:\s*(.+)/i);
+        if (categoryMatch) {
+            category = categoryMatch[1].trim();
+            reply = reply.replace(categoryMatch[0], '').trim();
+        }
+        
+        // Extract TAGS
+        const tagsMatch = fullContent.match(/TAGS:\s*(.+)/i);
+        if (tagsMatch) {
+            const tagString = tagsMatch[1].trim();
+            tags = tagString.split(',').map(t => t.trim().toLowerCase().replace('#', ''));
+            reply = reply.replace(tagsMatch[0], '').trim();
+        }
+        
+        return { reply, tags, category };
     } catch (error) {
         console.error("AI Generation Error:", error);
-        return "I'm sorry, I'm having trouble processing that right now. Could you please try again?";
+        return { 
+            reply: "I'm sorry, I'm having trouble processing that right now. Could you please try again?", 
+            tags: [],
+            category: null
+        };
     }
 };
