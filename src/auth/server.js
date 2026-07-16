@@ -3,7 +3,7 @@ import { supabase } from '../supabase/client.js';
 import { redis } from '../redis/client.js';
 
 export const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Step 1: Redirect user to Google
 app.get('/auth/login', async (req, res) => {
