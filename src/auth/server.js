@@ -3,7 +3,7 @@ import { supabase } from '../supabase/client.js';
 import { redis } from '../redis/client.js';
 
 export const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
 // Step 1: Redirect user to Google
 app.get('/auth/login', async (req, res) => {
@@ -13,10 +13,11 @@ app.get('/auth/login', async (req, res) => {
     }
 
     // Generate OAuth link
+    const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
     const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-            redirectTo: `http://localhost:3000/auth/callback?userId=${telegramUserId}`,
+            redirectTo: `${baseUrl}/auth/callback?userId=${telegramUserId}`,
             scopes: 'https://www.googleapis.com/auth/drive.file',
             queryParams: {
                 prompt: 'consent',
@@ -89,7 +90,7 @@ app.get('/auth/callback', async (req, res) => {
 });
 
 export const startServer = () => {
-    app.listen(port, () => {
-        console.log(`Auth Web Server listening on http://localhost:${port}`);
+    app.listen(port, "0.0.0.0", () => {
+        console.log(`Auth Web Server listening on port ${port}`);
     });
 };

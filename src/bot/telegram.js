@@ -37,9 +37,11 @@ const visionModel = new ChatGoogleGenerativeAI({
 
 bot.command('login', async (ctx) => {
     const userId = ctx.from.id;
-    const loginUrl = `http://localhost:3000/auth/login?userId=${userId}`;
+    const port = process.env.PORT || 3000;
+    const baseUrl = process.env.BASE_URL || `http://localhost:${port}`;
+    const loginUrl = `${baseUrl}/auth/login?userId=${userId}`;
     
-    // We use HTML parse_mode to force Telegram to make the localhost URL a clickable link
+    // We use HTML parse_mode to force Telegram to make the URL a clickable link
     return ctx.reply(
         `Please click the link below to securely log in with Google:\n\n<a href="${loginUrl}">${loginUrl}</a>`,
         { parse_mode: 'HTML' }
